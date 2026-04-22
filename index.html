@@ -339,6 +339,9 @@ body::before{content:'';position:fixed;inset:0;background-image:url("data:image/
 .empty-text{font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text2);}
 .empty-sub{font-size:13px;margin-top:6px;}
 .hidden{display:none!important;}
+.source-badge{font-size:10px;font-family:var(--font-mono);padding:2px 7px;border-radius:4px;background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border);}
+.source-badge.emea{background:var(--purple-bg);color:var(--purple);border-color:var(--purple-border);}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
 ::-webkit-scrollbar{width:5px;height:5px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
 .job-card{animation:fadeUp 0.3s ease both;}
@@ -407,8 +410,12 @@ body::before{content:'';position:fixed;inset:0;background-image:url("data:image/
     </div>
   </div>
   <div class="sidebar-footer">
-    <button class="refresh-btn" onclick="simulateRefresh()">⟳ Refresh Jobs</button>
-    <div class="last-updated" id="last-updated">Updated: 23 Apr 2026, 23:30</div>
+    <button class="refresh-btn" onclick="liveRefresh(false)">⟳ Refresh Jobs</button>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+      <button style="flex:1;padding:6px;background:transparent;border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);cursor:pointer;font-family:var(--font-mono);" onclick="liveRefresh(true)" title="Force bypass cache">⚡ Force</button>
+      <button style="flex:1;padding:6px;background:transparent;border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text3);cursor:pointer;font-family:var(--font-mono);" onclick="configWorker()" title="Set worker URL">⚙ Config</button>
+    </div>
+    <div class="last-updated" id="last-updated">Static data · click Refresh for live jobs</div>
   </div>
 </aside>
 
@@ -434,9 +441,9 @@ body::before{content:'';position:fixed;inset:0;background-image:url("data:image/
         <div class="stat-card stretch"><div class="stat-label">Stretch</div><div class="stat-value" id="stat-stretch">1</div><div class="stat-sub">Below 65</div></div>
       </div>
       <div class="filter-bar">
-        <span class="filter-label">Filter:</span>
+        <span class="filter-label">Tier:</span>
         <button class="filter-chip active" data-filter="all" onclick="filterTier('all',this)">All</button>
-        <button class="filter-chip chip-high" data-filter="high" onclick="filterTier('high',this)">High probability</button>
+        <button class="filter-chip chip-high" data-filter="high" onclick="filterTier('high',this)">High</button>
         <button class="filter-chip chip-medium" data-filter="medium" onclick="filterTier('medium',this)">Medium</button>
         <button class="filter-chip chip-stretch" data-filter="stretch" onclick="filterTier('stretch',this)">Stretch</button>
         <select class="sort-select" id="sort-select" onchange="sortJobs(this.value)">
@@ -445,6 +452,16 @@ body::before{content:'';position:fixed;inset:0;background-image:url("data:image/
           <option value="salary">Sort: Salary</option>
           <option value="company">Sort: Company A–Z</option>
         </select>
+      </div>
+      <div class="filter-bar" style="margin-top:-12px;">
+        <span class="filter-label">Region:</span>
+        <button class="region-chip filter-chip active" onclick="filterRegion('all',this)">🌍 All regions</button>
+        <button class="region-chip filter-chip" onclick="filterRegion('kenya',this)">🇰🇪 Kenya</button>
+        <button class="region-chip filter-chip" onclick="filterRegion('emea-remote',this)">🌐 EMEA Remote</button>
+        <span id="live-indicator" style="margin-left:auto;font-size:11px;font-family:var(--font-mono);color:var(--text3);display:flex;align-items:center;gap:5px;">
+          <span id="live-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text3);display:inline-block;"></span>
+          <span id="live-label">static</span>
+        </span>
       </div>
       <div id="jobs-container"></div>
       <div class="top5-section" id="top5-section">
@@ -594,7 +611,7 @@ const JOBS=[
 ];
 
 // ── STATE ─────────────────────────────────────────────────────
-let currentFilter='all',currentSort='score',hideExpired=false,freshOnly=false,searchQuery='',currentView='all';
+let currentFilter='all',currentSort='score',hideExpired=false,freshOnly=false,searchQuery='',currentView='all',currentRegion='all';
 let applications=JSON.parse(localStorage.getItem('tr_applications')||'[]');
 let appliedJobIds=new Set(JSON.parse(localStorage.getItem('tr_applied_ids')||'[]'));
 function saveApps(){localStorage.setItem('tr_applications',JSON.stringify(applications));}
@@ -631,8 +648,9 @@ function switchPage(page){
 function getFilteredJobs(){
   let j=[...JOBS];
   if(hideExpired) j=j.filter(x=>!x.expired);
-  if(freshOnly){const c=new Date('2026-04-16');j=j.filter(x=>new Date(x.postedDate)>=c);}
-  if(searchQuery){const q=searchQuery.toLowerCase();j=j.filter(x=>x.title.toLowerCase().includes(q)||x.company.toLowerCase().includes(q)||x.skills.some(s=>s.toLowerCase().includes(q)));}
+  if(freshOnly){const c=new Date(Date.now()-7*24*60*60*1000);j=j.filter(x=>new Date(x.postedDate)>=c);}
+  if(currentRegion!=='all') j=j.filter(x=>(x.region||'kenya')===currentRegion);
+  if(searchQuery){const q=searchQuery.toLowerCase();j=j.filter(x=>x.title.toLowerCase().includes(q)||x.company.toLowerCase().includes(q)||(x.skills||[]).some(s=>s.toLowerCase().includes(q)));}
   if(currentFilter!=='all') j=j.filter(x=>x.tier===currentFilter);
   else if(currentView!=='all') j=j.filter(x=>x.tier===currentView);
   j.sort((a,b)=>{
@@ -677,6 +695,7 @@ function buildCard(job){
   let badgeHTML=`<span class="badge badge-date">${job.postedLabel}</span>`;
   if(job.expired) badgeHTML+=`<span class="badge badge-expired">⊘ Expired</span>`;
   else if(job.urgent) badgeHTML+=`<span class="badge badge-urgent">⚡ ${job.deadlineLabel}</span>`;
+  if(job.source) badgeHTML+=`<span class="source-badge${job.region==='emea-remote'?' emea':''}">${job.region==='emea-remote'?'🌐 ':''} ${job.source}</span>`;
   const skillsHTML=job.skills.slice(0,6).map(s=>`<span class="skill-tag${job.matchedSkills.includes(s)?' matched':''}">${s}</span>`).join('');
   const markLabel=alreadyApplied?'✓ Logged in Tracker':'✓ Mark as Applied';
   const markClass=alreadyApplied?'mark-applied-btn done':'mark-applied-btn';
@@ -797,7 +816,103 @@ function sortJobs(v){currentSort=v;renderJobs();}
 function toggleSort(){const o=['score','date','salary','company'];const i=o.indexOf(currentSort);currentSort=o[(i+1)%o.length];document.getElementById('sort-select').value=currentSort;renderJobs();}
 function toggleExpired(el){hideExpired=!hideExpired;el.classList.toggle('active',hideExpired);renderJobs();}
 function toggleFresh(el){freshOnly=!freshOnly;el.classList.toggle('active',freshOnly);renderJobs();}
-function simulateRefresh(){const b=document.querySelector('.refresh-btn');b.textContent='⟳ Refreshing…';b.style.opacity='0.6';setTimeout(()=>{b.textContent='✓ Up to date';b.style.opacity='1';setTimeout(()=>{b.textContent='⟳ Refresh Jobs';},2000);},1400);}
+function filterRegion(region,el){currentRegion=region;document.querySelectorAll('.region-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderJobs();}
+
+// ── LIVE REFRESH ─────────────────────────────────────────────────────────────
+// ★ PASTE YOUR WORKER URL HERE after deploying to Cloudflare ★
+// e.g. "https://talentrodar-jobs.YOUR-SUBDOMAIN.workers.dev"
+const WORKER_URL = localStorage.getItem('tr_worker_url') || '';
+
+async function liveRefresh(force=false){
+  const btn=document.querySelector('.refresh-btn');
+  const statusEl=document.getElementById('last-updated');
+
+  if(!WORKER_URL){
+    // No worker yet — show config prompt
+    const entered=prompt('Paste your Cloudflare Worker URL to enable live job fetching:\n(e.g. https://talentrodar-jobs.YOUR-NAME.workers.dev)\n\nLeave blank to skip.');
+    if(entered&&entered.startsWith('http')){
+      localStorage.setItem('tr_worker_url',entered.trim());
+      location.reload();
+    } else {
+      btn.textContent='⚙ Set Worker URL first';
+      setTimeout(()=>{btn.textContent='⟳ Refresh Jobs';},3000);
+    }
+    return;
+  }
+
+  btn.textContent='⟳ Fetching live jobs…';
+  btn.style.opacity='0.7';
+  btn.disabled=true;
+  statusEl.textContent='Contacting job boards…';
+
+  try {
+    const endpoint=`${WORKER_URL}/jobs${force?'?refresh=1':''}`;
+    const res=await fetch(endpoint,{headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`Worker returned ${res.status}`);
+    const data=await res.json();
+
+    if(data.jobs&&data.jobs.length>0){
+      // Merge live jobs with hardcoded ones — live jobs take priority
+      const liveIds=new Set(data.jobs.map(j=>j.id));
+      const merged=[...data.jobs,...JOBS_STATIC.filter(j=>!liveIds.has(j.id))];
+      JOBS.length=0;
+      merged.forEach(j=>JOBS.push(j));
+
+      const updatedAt=data.updatedAt?new Date(data.updatedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'now';
+      const cached=data.cached?' (cached)':'';
+      statusEl.textContent=`Live · ${data.count} jobs · updated ${updatedAt}${cached}`;
+      btn.textContent='✓ Jobs updated';
+
+      // Show source breakdown in console for debugging
+      if(data.sources) console.table(data.sources);
+
+      renderJobs();
+    } else {
+      statusEl.textContent='No new jobs returned — using last data';
+      btn.textContent='⚠ No data returned';
+    }
+  } catch(e){
+    console.error('Worker fetch failed:',e);
+    statusEl.textContent='Worker unreachable — showing cached data';
+    btn.textContent='⚠ Refresh failed';
+  } finally {
+    btn.style.opacity='1';
+    btn.disabled=false;
+    setTimeout(()=>{btn.textContent='⟳ Refresh Jobs';},3500);
+  }
+}
+
+// Keep a copy of the hardcoded jobs as fallback
+const JOBS_STATIC=[...JOBS];
+
+function configWorker(){
+  const current=localStorage.getItem('tr_worker_url')||'';
+  const entered=prompt(`Cloudflare Worker URL:\n(e.g. https://talentrodar-jobs.YOUR-NAME.workers.dev)\n\nCurrent: ${current||'not set'}`,current);
+  if(entered===null) return;
+  if(entered.startsWith('http')){
+    localStorage.setItem('tr_worker_url',entered.trim());
+    location.reload();
+  } else if(entered===''){
+    localStorage.removeItem('tr_worker_url');
+    alert('Worker URL cleared. Using static data.');
+  }
+}
+
+function updateLiveIndicator(live){
+  const dot=document.getElementById('live-dot');
+  const label=document.getElementById('live-label');
+  if(!dot||!label) return;
+  if(live){dot.style.background='var(--green)';dot.style.animation='pulse 2s infinite';label.textContent='live';}
+  else{dot.style.background='var(--text3)';dot.style.animation='';label.textContent='static';}
+}
+
+// Auto-fetch on load if worker URL is configured
+if(WORKER_URL){
+  updateLiveIndicator(false);
+  liveRefresh(false).then(()=>updateLiveIndicator(true)).catch(()=>{});
+} else {
+  updateLiveIndicator(false);
+}
 
 // ── TRACKER ───────────────────────────────────────────────────
 function renderTracker(){
